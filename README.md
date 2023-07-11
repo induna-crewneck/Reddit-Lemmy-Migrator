@@ -10,7 +10,7 @@ This script is meant to make the switch from Reddit to Lemmy easier. These are t
 
 ## Prerequisites
 You will need Python 3 aswell as the modules requests, beautifulsoup4, selenium.
-You will also need a Lemmy account. You can pick a server and create one though (join-lemmy.org)[https://join-lemmy.org/instances]
+You will also need a Lemmy account. You can pick a server and create one though [join-lemmy.org](https://join-lemmy.org/instances)
 
 ## Usage
 1. Download the script `reddit-lemmy-migrator.py` from this repo (doesn't matter where to).
@@ -20,7 +20,7 @@ You will also need a Lemmy account. You can pick a server and create one though 
 
 ## FAQ
 ### What is Lemmy?
-Lemmy is a lot like reddit, but selfhosted, open-source and decentralized. This means no single company (like Reddit) can suddenly decide to mess with things. For more info visit (join-lemmy.org)[https://join-lemmy.org/]
+Lemmy is a lot like reddit, but selfhosted, open-source and decentralized. This means no single company (like Reddit) can suddenly decide to mess with things. For more info visit [join-lemmy.org](https://join-lemmy.org)
 ### Why would I want to switch from Reddit to Lemmy?
 In short and besides the points mentioned above, Reddit is limiting users and mods and slowly making more and more changes to the platform to maximize profiablity.
 ### Is it safe to put my username and password into this?
