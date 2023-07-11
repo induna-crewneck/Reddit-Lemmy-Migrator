@@ -9,7 +9,8 @@ This script is meant to make the switch from Reddit to Lemmy easier. These are t
 3. Joins the communities with your Lemmy account.
 
 ## Prerequisites
-You will need Python 3 aswell as the modules requests, beautifulsoup4, selenium
+You will need Python 3 aswell as the modules requests, beautifulsoup4, selenium.
+You will also need a Lemmy account. You can pick a server and create one though (join-lemmy.org)[https://join-lemmy.org/instances]
 
 ## Usage
 1. Download the script `reddit-lemmy-migrator.py` from this repo (doesn't matter where to).
