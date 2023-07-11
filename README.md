@@ -9,13 +9,15 @@ This script is meant to make the switch from Reddit to Lemmy easier. These are t
 3. Joins the communities with your Lemmy account.
 
 ## Prerequisites
-You will need Python 3 aswell as the modules requests, beautifulsoup4, selenium.
+- [Python 3](https://realpython.com/installing-python/)
+- Python modules: requests, beautifulsoup4, selenium.
+   To install them all at once, run `pip install requests beautifulsoup4 selenium`
 You will also need a Lemmy account. You can pick a server and create one though [join-lemmy.org](https://join-lemmy.org/instances)
 
 ## Usage
 1. Download the script `reddit-lemmy-migrator.py` from this repo (doesn't matter where to).
-2. Run the script `python3 reddit-lemmy-migrator.py`
-3. Follow the prompts
+2. Run the script: Open your Terminal (Mac) or Command Console (Windows) and run `python3 reddit-lemmy-migrator.py`
+3. Follow the prompts. If you are subscribed to a lot of subreddits, be patient.
 4. Done!
 
 ## FAQ
