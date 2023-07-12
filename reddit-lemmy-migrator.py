@@ -5,6 +5,7 @@
 # This script is meant to automate migration from Reddit to Lemmy by getting a list of 
 #	your subscribed subreddits, looking for them on Lemmy and subscribing to them there.
 # python3
+from getpass import getpass
 
 DEBUG = 0
 
@@ -35,7 +36,7 @@ driver = webdriver.Chrome(options=chrome_options)
 # GET LOGIN DATA -------------------------------------------------------------------------
 def getredditlogin():
 	redduname = input("Reddit username:	")
-	reddpass = input("Reddit password:	")
+	reddpass = getpass("Reddit password:	")
 	return redduname, reddpass
 
 def getlemmyserver():
@@ -44,7 +45,7 @@ def getlemmyserver():
 	
 def getlemmylogin():
 	lemmuname = input("Lemmy username:		")
-	lemmpass = input("Lemmy password:		")
+	lemmpass = getpass("Lemmy password:		")
 	return lemmuname,lemmpass
 
 def checkreddlogin(redduname,reddpass):
