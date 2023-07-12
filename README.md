@@ -12,6 +12,7 @@ This script is meant to make the switch from Reddit to Lemmy (or kbin) easier. T
 - [Python 3](https://realpython.com/installing-python/)
 - Python modules: requests, beautifulsoup4, selenium.
    - To install them all at once, run `pip install requests beautifulsoup4 selenium`
+- Chrome or ChromeDriver. To install Chromedriver on Linux you can run `sudo apt install chromium-chromedriver`, on Mac follow [this guide](https://www.swtestacademy.com/install-chrome-driver-on-mac/) and on Windows [this guide](https://jonathansoma.com/lede/foundations-2018/classes/selenium/selenium-windows-install/) 
 - Lemmy account. You can pick a server and create one though [join-lemmy.org](https://join-lemmy.org/instances)
 - Reddit account. Note that your reddit account needs to be set to english for this to work.
 
