@@ -1,14 +1,26 @@
-# Reddit to kbin migration assistant
-#	v.1.2 (20230711)
-#
-# 	github.com/induna-crewneck/
-# This script is meant to automate migration from Reddit to kbin by getting a list of 
-#	your subscribed subreddits, looking for them on kbin and subscribing to them there.
-# python3
+"""
+Reddit to kbin migration assistant		v.1.3 (20230713)
+	New changes:
+	-Fixed reddit login check (used to proceed if credentials were wrong)
+	-Fixed lemmy login (used to throw error due to username not being cleared on fail)
+	-Added debug argument functionality
+	-Simplified & optimised Lemmy community search
+	-Discovered and added more info on Known Issue: 'Incomplete lemmy magazine'. Check Github page for more info
+	-Added login through command line functionality
 
-DEBUG = 0
+https://github.com/induna-crewneck/Reddit-Lemmy-Migrator/
+
+This script is meant to automate migration from Reddit to kbin by getting a list of 
+your subscribed subreddits, looking for them on kbin and subscribing to them there.
+
+python3
+"""
+
+DEBUG = 0		# can be changed manually or activated by using "-debug" argument when executing the script:
+				# "reddit-lemmy-migrator.py -debug"
 
 # IMPORTS --------------------------------------------------------------------------------
+import sys
 from bs4 import BeautifulSoup 
 import requests
 import re
@@ -17,6 +29,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
+from selenium.common.exceptions import NoSuchElementException
 import os
 import operator
 
@@ -25,6 +38,30 @@ reddURL = "https://old.reddit.com/subreddits/"
 reddcredstatus = "not set"
 kbinserverstatus = "not set"
 kbincredstatus = "not set"
+ARGLOGIN = 0
+
+# Setting DEBUG if "-debug was added to command-line"
+try:
+	sysarg = sys.argv[1].replace("-","")
+	if "debug" in sysarg:
+		DEBUG = 1
+		print("\nDEBUG output enabled by user")
+	if "help" in sysarg:
+		print("\nInfo about program:		github.com/induna-crewneck/Reddit-Lemmy-Migrator")
+		print("To enable debug info output use 'debug'")
+		print("To login via command line you can use 'login' followed by your login data. Syntax:\n	reddit-lemmy-migrator.py login [Reddit username] [Reddit password] [Lemmy server] [Lemmy username] [Lemmy password]")
+		exit()
+	if "login" in str(sys.argv):
+		try:
+			ARGLOGIN = 1
+			arglogindata = str(re.findall('login (.*)', " ".join(sys.argv))).replace("'","").replace("[","").replace("]","").split(" ")
+			redduname,reddpass,kbinserver,kbinuname,kbinpass = arglogindata
+		except Exception as e2:
+			ARGLOGIN = 0
+			if DEBUG == 1: print("Error processing login data from arguments: "+str(e2))
+	if DEBUG == 1: print("\n")
+except Exception as e:
+	if DEBUG == 1: print("no arguments added to execution command "+e)
 
 # PRE-SETUP ------------------------------------------------------------------------------
 chrome_options = Options()
@@ -49,28 +86,29 @@ def getkbinlogin():
 	return kbinuname,kbinpass
 
 def checkreddlogin(redduname,reddpass):
-	print("	Reddit login data",end="")
+	if DEBUG == 1 : print("	Checking Reddit login data")
 	try:
 		driver.get(reddURL)
 		driver.find_element(By.XPATH, '//*[@id="login_login-main"]/input[2]').send_keys(redduname)
 		driver.find_element("id", "rem-login-main").click()
 		driver.find_element(By.XPATH, '//*[@id="login_login-main"]/input[3]').send_keys(reddpass)
 		driver.find_element(By.XPATH, '//*[@id="login_login-main"]/div[4]/button').click()
-		#driver.find_element(By.XPATH, '//*[@id="login_login-main"]/input[3]').send_keys(Keys.ENTER)
-		time.sleep(5)
-		currentURL = driver.current_url
-		if "login" in currentURL:
-			print(" wrong. Try again.")
-			status = "false_login"
-			return status
-		print(" valid.")
-		status = "OK"
-		return status
+		time.sleep(3)
+		try:
+			loginstatus = driver.find_element(By.XPATH,'//*[@id="login_login-main"]/div[2]').text
+			if DEBUG == 1 and loginstatus != "incorrect username or password": print("		"+loginstatus)
+			print("	Incorrect username or password")
+			return "false_login"
+		except NoSuchElementException:
+			if DEBUG == 1 : print("		Login error not found (this is good)")
+			print("	Reddit login success")
+			return "OK"
+		except Exception as e2:
+			if DEBUG == 1 : print("		Error while checking Reddit credentials:\n"+e2)
 	except Exception as e:
-		print(" could not be verified due to an error.")
-		if DEBUG == 1 : print(e)
-		status = "false_login"
-		return status
+		if DEBUG == 1 : print("		Error while checking Reddit credentials:\n"+e)
+		print(" Reddit login could not be verified due to an error.")
+		return "false_login"
 
 def checkkbinserver(kbinserver):
 	print("	Selected kbin server",end="")
@@ -102,6 +140,7 @@ def checkkbinlogin(kbinserver,kbinuname,kbinpass):
 	print("	kbin login data",end="")
 	try:
 		driver.get("http://"+kbinserver+"/login")
+		driver.find_element("id", "email").clear()		#Clearing field to prepare for new username (in case of fail)
 		driver.find_element("id", "email").send_keys(kbinuname)
 		driver.find_element("id", "password").send_keys(kbinpass)
 		driver.find_element(By.XPATH, '//*[@id="remember"]').click()
@@ -172,40 +211,45 @@ def kbinsubsearch(sub):
 		#if DEBUG == 1 : print("kbinsubsearch ERROR: ",e)
 		return 0
 
-def lemmyworldcheck(sub):
-	s = requests.session()
-	response = s.get("https://lemmy.world/c/"+sub)
-	responsecode = int(str(re.findall(r"\d{3}", str(response)))[2:5])
-	if responsecode == 200:
-		file_object = open('kbin.txt', 'a')
-		file_object.write("\n"+sub+"@lemmy.world")
-		file_object.close()
-		return 1
-	else: return 0
-
 def lemmysubsearch(sub):
 	try:
 		lemmysearchURL = "https://lemmy.world/search?q="+sub+"&type=Communities&sort=TopAll"
 		driver.get(lemmysearchURL)
-		searchresult = driver.page_source.encode("utf-8")
+		topresult = driver.find_element(By.XPATH,'//*[@id="app"]/div[2]/div/div/div[3]/div/span[1]/a/span').text
 		try:
-			topresult = re.search("!"+sub+"@([^\s]+)", str(searchresult))
-			sub_string = topresult.group()
+			topresult = str(topresult)
 		except:
+			topresult=topresult
+		if "@" not in topresult:
+			topresult = topresult+"@lemmy.world"
+			s = requests.session()
+			response = s.get("http://"+str(kbinserver)+"/"+topresult)
+			responsecode = int(str(re.findall(r"\d{3}", str(response)))[2:5])
+			if responsecode != 200 and DEBUG == 1: print("not accessible\n			Check 'Incomplete lemmy magazine' under 'Known Issues' on the Github page for more info\n			Otherwise ",end="")
 			return 0
-		try:
-			topresult = sub_string.replace('"','').replace('!','')
-		except:
-			return 0
-		if sub not in topresult: return 0
-		file_object = open('kbin.txt', 'a')
-		file_object.write("\n"+str(topresult))
+		file_object = open("kbin.txt", "a")
+		file_object.write("\n"+topresult)
 		file_object.close()
 		return 1
-	except Exception as e:
-		if DEBUG == 1 : print("lemmysubsearch ERROR: ",e)
+	except NoSuchElementException:
 		return 0
-		return topresult
+	except Exception as e:
+		if DEBUG == 1 : print(" produced an error: ",e)
+		return 0
+
+def cleankbin():
+	try:
+		lines_seen = set()
+		outfile = open("kbin2.txt", "w")
+		for line in open("kbin.txt", "r"):
+			if line not in lines_seen and " " not in line:
+				outfile.write(line)
+				lines_seen.add(line)
+		outfile.close()
+		os.remove("kbin.txt")
+		os.rename("kbin2.txt","kbin.txt")
+	except Exception as e:
+		if DEBUG == 1 : print(e)
 
 def kbinjoin():
 	try:
@@ -237,33 +281,28 @@ def kbinjoin():
 		if DEBUG == 1 : print(e)
 		exit()
 
-def cleankbin():
-	try:
-		lines_seen = set()
-		outfile = open("kbin2.txt", "w")
-		for line in open("kbin.txt", "r"):
-			if line not in lines_seen:
-				outfile.write(line)
-				lines_seen.add(line)
-		outfile.close()
-		os.remove("kbin.txt")
-		os.rename("kbin2.txt","kbin.txt")
-	except Exception as e:
-		if DEBUG == 1 : print(e)
-
 # EXECUTION ------------------------------------------------------------------------------
 print("Welcome to the Reddit to Kbin migration tool.\n")
 print("It will create a list of your subscribed subreddits, look for communities with the same name on kbin")
 print("and subscribe to the community with the most subscribers. If there is a community on kbin.social that is")
 print("not the one with the most subscribers, it will still be subscribed to.\n")
 
-print("Please enter your Reddit account info")
+if ARGLOGIN == 1:
+	if DEBUG == 1: print("Login data received from command line arguments\n	Checking login data")
+	reddcredstatus = checkreddlogin(redduname,reddpass)
+	if DEBUG == 1 and reddcredstatus != "OK": print("		Reddit credentials in command line arguments seem to be incorrect")
+	kbinserverstatus = checkkbinserver(kbinserver)
+	if DEBUG == 1 and kbinserverstatus != "OK": print("		Lemmy instance in command line arguments seems to be incorrect")
+	kbincredstatus = checkkbinlogin(kbinserver,kbinuname,kbinpass)
+	if DEBUG == 1 and kbincredstatus != "OK": print("		Lemmy credentials in command line arguments seem to be incorrect")
+
+if ARGLOGIN == 0: print("Please enter your Reddit account info")
 
 while reddcredstatus != "OK":
 	redduname,reddpass = getredditlogin()
 	reddcredstatus = checkreddlogin(redduname,reddpass)
 
-print("\nPlease enter your kbin account info ('instance' is the server you signed-up on, like kbin.social)")
+if ARGLOGIN == 0: print("\nPlease enter your kbin account info ('instance' is the server you signed-up on, like kbin.social)")
 while kbinserverstatus != "OK":
 	kbinserver = getkbinserver()
 	kbinserverstatus = checkkbinserver(kbinserver)
@@ -275,6 +314,9 @@ while kbincredstatus != "OK":
 print("Getting a list of your subsribed subreddits")
 subs = getsubs()
 
+subs = ['3amjokes','AmoledBackgrounds','collegehumor','me_irl','testestestafddas']
+kbinserver = "kbin.social"
+
 print("	Looking for corresponding communities on kbin. Depending on the number of subreddits, this can take a while.")
 for sub in subs:
 	sub = str(sub)
@@ -283,12 +325,13 @@ for sub in subs:
 		socialresult = socialcheck(sub)
 		topkbinresult = kbinsubsearch(sub)
 		lemmyresult = lemmysubsearch(sub)
-		lemmyworldresult = lemmyworldcheck(sub)
 		if DEBUG == 1:
-			if socialresult + topkbinresult + lemmyresult + lemmyworldresult == 0: print("not found")
+			if socialresult + topkbinresult + lemmyresult == 0: print("not found")
 			else: print("found")
 	except Exception as e3:
 		if DEBUG == 1 : print("ERROR while searching: ",e3)
+
+time.sleep(999) #debug
 
 print("Cleaning up duplicates")
 cleankbin()
