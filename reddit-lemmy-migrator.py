@@ -1,14 +1,25 @@
-# Reddit to Lemmy migration assistant
-#	v.1.0 (20230711)
-#
-# 	github.com/induna-crewneck/
-# This script is meant to automate migration from Reddit to Lemmy by getting a list of 
-#	your subscribed subreddits, looking for them on Lemmy and subscribing to them there.
-# python3
+"""
+Reddit to Lemmy migration assistant		v.1.3 (20230713)
+	New changes:
+	-Fixed reddit login check (used to proceed if credentials were wrong)
+	-Added debug argument functionality
+	-Simplified & optimised Lemmy community search. Now only does one search across instances
+	-Changed Lemmy list cleaning behaviour
+	-Added login through command line functionality
 
-DEBUG = 0
+https://github.com/induna-crewneck/Reddit-Lemmy-Migrator/
+
+This script is meant to automate migration from Reddit to kbin by getting a list of 
+your subscribed subreddits, looking for them on kbin and subscribing to them there.
+
+python3
+"""
+
+DEBUG = 0		# can be changed manually or activated by using "debug" argument when executing the script:
+				# "reddit-lemmy-migrator.py debug"
 
 # IMPORTS --------------------------------------------------------------------------------
+import sys
 from bs4 import BeautifulSoup 
 import requests
 import re
@@ -17,6 +28,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
+from selenium.common.exceptions import NoSuchElementException
 import os
 
 # VARIABLES ------------------------------------------------------------------------------
@@ -24,12 +36,36 @@ reddURL = "https://old.reddit.com/subreddits/"
 reddcredstatus = "not set"
 lemmyserverstatus = "not set"
 lemmycredstatus = "not set"
+ARGLOGIN = 0
+
+# Setting DEBUG if "-debug was added to command-line"
+try:
+	sysarg = sys.argv[1].replace("-","")
+	if "debug" in sysarg:
+		DEBUG = 1
+		print("\nDEBUG output enabled by user")
+	if "help" in sysarg:
+		print("\nInfo about program:		github.com/induna-crewneck/Reddit-Lemmy-Migrator")
+		print("To enable debug info output use 'debug'")
+		print("To login via command line you can use 'login' followed by your login data. Syntax:\n	reddit-lemmy-migrator.py login [Reddit username] [Reddit password] [Lemmy server] [Lemmy username] [Lemmy password]")
+		exit()
+	if "login" in str(sys.argv):
+		try:
+			ARGLOGIN = 1
+			arglogindata = str(re.findall('login (.*)', " ".join(sys.argv))).replace("'","").replace("[","").replace("]","").split(" ")
+			redduname,reddpass,lemmserver,lemmuname,lemmpass = arglogindata
+		except Exception as e2:
+			ARGLOGIN = 0
+			if DEBUG == 1: print("Error processing login data from arguments: "+str(e2))
+	if DEBUG == 1: print("\n")
+except Exception as e:
+	if DEBUG == 1: print("no arguments added to execution command "+e)
 
 # PRE-SETUP ------------------------------------------------------------------------------
 chrome_options = Options()
 chrome_options.add_argument("--disable-extensions")
 chrome_options.add_argument("--disable-gpu")
-chrome_options.add_argument("--headless")
+if DEBUG != 1: chrome_options.add_argument("--headless")
 driver = webdriver.Chrome(options=chrome_options)
 
 # GET LOGIN DATA -------------------------------------------------------------------------
@@ -48,28 +84,29 @@ def getlemmylogin():
 	return lemmuname,lemmpass
 
 def checkreddlogin(redduname,reddpass):
-	print("	Reddit login data",end="")
+	if DEBUG == 1 : print("	Checking Reddit login data")
 	try:
 		driver.get(reddURL)
 		driver.find_element(By.XPATH, '//*[@id="login_login-main"]/input[2]').send_keys(redduname)
 		driver.find_element("id", "rem-login-main").click()
 		driver.find_element(By.XPATH, '//*[@id="login_login-main"]/input[3]').send_keys(reddpass)
 		driver.find_element(By.XPATH, '//*[@id="login_login-main"]/div[4]/button').click()
-		#driver.find_element(By.XPATH, '//*[@id="login_login-main"]/input[3]').send_keys(Keys.ENTER)
-		time.sleep(5)
-		currentURL = driver.current_url
-		if "login" in currentURL:
-			print(" wrong. Try again.")
-			status = "false_login"
-			return status
-		print(" valid.")
-		status = "OK"
-		return status
+		time.sleep(3)
+		try:
+			loginstatus = driver.find_element(By.XPATH,'//*[@id="login_login-main"]/div[2]').text
+			if DEBUG == 1 and loginstatus != "incorrect username or password": print("		"+loginstatus)
+			print("	Incorrect username or password")
+			return "false_login"
+		except NoSuchElementException:
+			if DEBUG == 1 : print("		Login error not found (this is good)")
+			print("	Reddit login success")
+			return "OK"
+		except Exception as e2:
+			if DEBUG == 1 : print("		Error while checking Reddit credentials:\n"+e2)
 	except Exception as e:
-		print(" could not be verified due to an error.")
-		if DEBUG == 1 : print(e)
-		status = "false_login"
-		return status
+		if DEBUG == 1 : print("		Error while checking Reddit credentials:\n"+e)
+		print(" Reddit login could not be verified due to an error.")
+		return "false_login"
 
 def checklemmyserver(lemmserver):
 	print("	Selected Lemmy server",end="")
@@ -125,7 +162,7 @@ def getsubs():
 		driver.get(reddURL)
 		multi = driver.find_element(By.LINK_TEXT, "multireddit of your subscriptions").get_attribute('href')
 	except Exception as e:
-		print("	Error obtaining subreddit list")
+		print("	Error obtaining subreddit list\nMake sure your reddit account is set to english.")
 		if DEBUG == 1 : print(e)
 		exit()
 	try:
@@ -137,59 +174,38 @@ def getsubs():
 		if DEBUG == 1 : print(e)
 		exit()
 
-def lemmysubcheck(sub):
-	s = requests.session()
-	response = s.get("https://lemmy.world/c/"+sub)
-	responsecode = int(str(re.findall(r"\d{3}", str(response)))[2:5])
-	if responsecode == 200:
-		file_object = open('lemmy.txt', 'a')
-		file_object.write("\n"+sub+"@lemmy.world")
-		file_object.close()
-		return 1
-
 def lemmysubsearch(sub):
 	try:
 		lemmysearchURL = "https://lemmy.world/search?q="+sub+"&type=Communities&sort=TopAll"
 		driver.get(lemmysearchURL)
-		searchresult = driver.page_source.encode("utf-8")
+		topresult = driver.find_element(By.XPATH,'//*[@id="app"]/div[2]/div/div/div[3]/div/span[1]/a/span').text
 		try:
-			topresult = re.search("!"+sub+"@([^\s]+)", str(searchresult))
-			sub_string = topresult.group()
+			topresult = str(topresult)
 		except:
-			# Nothing on other instances
-			return
-		topresult = sub_string.replace('"','').replace('!','')
+			topresult=topresult
 		file_object = open("lemmy.txt", "a")
-		topresult = str(topresult)
 		file_object.write("\n"+topresult)
 		file_object.close()
-		try:
-			topinstance = topresult.replace(sub+"@","")
-			return topinstance
-		except:
-			return topresult
+		return topresult
+	except NoSuchElementException:
+		return 0
 	except Exception as e:
-		if DEBUG == 1 : print("lemmysubcheck ERROR: ",e)
+		if DEBUG == 1 : print(" produced an error: ",e)
+		return 1
 
 def lemmycleanup():
 	try:
-		with open("lemmy.txt","r") as f:
-			data = f.readlines()
-			for line in data:
-				f2 = str(line)
-				f3 = re.search("^[^\(]+", f2)
-				f4 = f3.group()
-				f5 = re.sub("]","",f4).strip()
-				file_object = open("lemmy2.txt", "a")
-				file_object.write("\n"+f5)
-				file_object.close()
+		lines_seen = set()
+		outfile = open("lemmy2.txt", "w")
+		for line in open("lemmy.txt", "r"):
+			if line not in lines_seen:
+				outfile.write(line)
+				lines_seen.add(line)
+		outfile.close()
+		os.remove("lemmy.txt")
+		os.rename("lemmy2.txt","lenny.txt")
 	except Exception as e:
-		print(" Error while processing lemmy community list.")
 		if DEBUG == 1 : print(e)
-		try: os.remove("lemmy2.txt")
-		except: return
-	os.remove("lemmy.txt")
-	os.rename("lemmy2.txt","lemmy.txt")
 
 def lemmyjoin():
 	try:
@@ -212,7 +228,7 @@ def lemmyjoin():
 							print(" not subscribed (ERROR 1)")
 					except Exception as e2:
 						print(" not subscribed (ERROR 2)")
-						#if DEBUG == 1 : print(e2)
+						if DEBUG == 1 : print(e2)
 		os.remove("lemmy.txt")
 	except Exception as e:
 		print("	Error while joining Lemmy communities.")
@@ -222,16 +238,24 @@ def lemmyjoin():
 # EXECUTION ------------------------------------------------------------------------------
 print("Welcome to the Reddit to Lemmy migration tool.\n")
 print("It will create a list of your subscribed subreddits, look for communities with the same name on Lemmy")
-print("and subscribe to the community with the most subscribers. If there is a community on lemmy.world that is")
-print("not the one with the most subscribers, it will still be subscribed to.\n")
+print("and subscribe to the community with the most subscribers (searching through lemmy.world)\n")
 
-print("Please enter your Reddit account info")
+if ARGLOGIN == 1:
+	if DEBUG == 1: print("Login data received from command line arguments\n	Checking login data")
+	reddcredstatus = checkreddlogin(redduname,reddpass)
+	if DEBUG == 1 and reddcredstatus != "OK": print("		Reddit credentials in command line arguments seem to be incorrect")
+	lemmyserverstatus = checklemmyserver(lemmserver)
+	if DEBUG == 1 and lemmyserverstatus != "OK": print("		Lemmy instance in command line arguments seems to be incorrect")
+	lemmycredstatus = checklemmylogin(lemmserver,lemmuname,lemmpass)
+	if DEBUG == 1 and lemmycredstatus != "OK": print("		Lemmy credentials in command line arguments seem to be incorrect")
+
+if ARGLOGIN == 0: print("Please enter your Reddit account info")
 
 while reddcredstatus != "OK":
 	redduname,reddpass = getredditlogin()
 	reddcredstatus = checkreddlogin(redduname,reddpass)
 
-print("\nPlease enter your Lemmy account info ('instance' is the server you signed-up on, like lemmy.world)")
+if ARGLOGIN == 0: print("\nPlease enter your Lemmy account info ('instance' is the server you signed-up on, like lemmy.world)")
 while lemmyserverstatus != "OK":
 	lemmserver = getlemmyserver()
 	lemmyserverstatus = checklemmyserver(lemmserver)
@@ -247,17 +271,14 @@ for sub in subs:
 	sub = str(sub)
 	if DEBUG == 1 : print("		"+sub,end="")
 	try:
-		worldstatus = lemmysubcheck(sub)
-		otherstatus = lemmysubsearch(sub)
+		lemmyresult = lemmysubsearch(sub)
 		if DEBUG == 1:
-			if worldstatus == 1:
-				if otherstatus == None: print(" found on lemmy.world")
-				else: print(" found on lemmy.world and "+otherstatus)
-			elif otherstatus != None: print(" found on "+otherstatus)
-			else: print(" not found on lemmy")
-	except Exception as e3:
+			if lemmyresult == 0: print(" not found on Lemmy.")
+			elif lemmyresult == 1 and DEBUG != 1 : print(" produced an Error while searching.")
+			elif len(lemmyresult)>1: print("@"+lemmyresult.replace(sub,"").replace("@",""))
+	except Exception as e:
 		if DEBUG == 1 : print("\n")
-		print("Error looking for "+sub+": "+e3)
+		print("Error looking for "+sub+": "+e)
 
 if DEBUG == 1 : print("	Cleaning up result list")
 lemmycleanup()
