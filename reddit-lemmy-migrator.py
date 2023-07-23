@@ -203,7 +203,7 @@ def lemmycleanup():
 				lines_seen.add(line)
 		outfile.close()
 		os.remove("lemmy.txt")
-		os.rename("lemmy2.txt","lenny.txt")
+		os.rename("lemmy2.txt","lemmy.txt")
 	except Exception as e:
 		if DEBUG == 1 : print(e)
 
