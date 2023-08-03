@@ -1,12 +1,12 @@
 """
-Reddit to kbin migration assistant		v.1.3 (20230713)
+Reddit to kbin migration assistant		v.1.4 (20230803)
 	New changes:
-	-Fixed reddit login check (used to proceed if credentials were wrong)
-	-Fixed lemmy login (used to throw error due to username not being cleared on fail)
-	-Added debug argument functionality
-	-Simplified & optimised Lemmy community search
-	-Discovered and added more info on Known Issue: 'Incomplete lemmy magazine'. Check Github page for more info
-	-Added login through command line functionality
+	-Search goes through home instance
+	-Fixed Lemmy login bug
+	-getpass implemented for password entering for more privacy
+	-removing spaces from topresult (was bug)
+		-added search instance to topresult (not too necessary, more for cohesiveness and debugging)
+	-added chromedriver autoinstaller. see https://pypi.org/project/chromedriver-autoinstaller/
 
 https://github.com/induna-crewneck/Reddit-Lemmy-Migrator/
 
@@ -26,10 +26,12 @@ import requests
 import re
 import time
 from selenium import webdriver 
+import chromedriver_autoinstaller
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException
+from getpass import getpass
 import os
 import operator
 
@@ -64,6 +66,7 @@ except Exception as e:
 	if DEBUG == 1: print("no arguments added to execution command "+e)
 
 # PRE-SETUP ------------------------------------------------------------------------------
+chromedriver_autoinstaller.install()
 chrome_options = Options()
 chrome_options.add_argument("--disable-extensions")
 chrome_options.add_argument("--disable-gpu")
@@ -73,7 +76,7 @@ driver = webdriver.Chrome(options=chrome_options)
 # GET LOGIN DATA -------------------------------------------------------------------------
 def getredditlogin():
 	redduname = input("Reddit username:	")
-	reddpass = input("Reddit password:	")
+	reddpass = getpass("Reddit password:	")
 	return redduname, reddpass
 
 def getkbinserver():
@@ -82,7 +85,7 @@ def getkbinserver():
 	
 def getkbinlogin():
 	kbinuname = input("kbin username:		")
-	kbinpass = input("kbin password:		")
+	kbinpass = getpass("kbin password:		")
 	return kbinuname,kbinpass
 
 def checkreddlogin(redduname,reddpass):
@@ -314,9 +317,6 @@ while kbincredstatus != "OK":
 print("Getting a list of your subsribed subreddits")
 subs = getsubs()
 
-subs = ['3amjokes','AmoledBackgrounds','collegehumor','me_irl','testestestafddas']
-kbinserver = "kbin.social"
-
 print("	Looking for corresponding communities on kbin. Depending on the number of subreddits, this can take a while.")
 for sub in subs:
 	sub = str(sub)
@@ -330,8 +330,6 @@ for sub in subs:
 			else: print("found")
 	except Exception as e3:
 		if DEBUG == 1 : print("ERROR while searching: ",e3)
-
-time.sleep(999) #debug
 
 print("Cleaning up duplicates")
 cleankbin()

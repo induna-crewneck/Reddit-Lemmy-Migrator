@@ -1,11 +1,12 @@
 """
-Reddit to Lemmy migration assistant		v.1.3 (20230713)
+Reddit to Lemmy migration assistant		v.1.4beta (20230803)
 	New changes:
-	-Fixed reddit login check (used to proceed if credentials were wrong)
-	-Added debug argument functionality
-	-Simplified & optimised Lemmy community search. Now only does one search across instances
-	-Changed Lemmy list cleaning behaviour
-	-Added login through command line functionality
+	-Search goes through home instance
+	-Fixed Lemmy login bug
+	-getpass implemented for password entering for more privacy
+	-removing spaces from topresult (was bug)
+		-added search instance to topresult (not too necessary, more for cohesiveness and debugging)
+	-added chromedriver autoinstaller. see https://pypi.org/project/chromedriver-autoinstaller/
 
 https://github.com/induna-crewneck/Reddit-Lemmy-Migrator/
 
@@ -24,11 +25,13 @@ from bs4 import BeautifulSoup
 import requests
 import re
 import time
-from selenium import webdriver 
+from selenium import webdriver
+import chromedriver_autoinstaller
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException
+from getpass import getpass
 import os
 
 # VARIABLES ------------------------------------------------------------------------------
@@ -62,6 +65,7 @@ except Exception as e:
 	if DEBUG == 1: print("no arguments added to execution command "+e)
 
 # PRE-SETUP ------------------------------------------------------------------------------
+chromedriver_autoinstaller.install()
 chrome_options = Options()
 chrome_options.add_argument("--disable-extensions")
 chrome_options.add_argument("--disable-gpu")
@@ -71,7 +75,7 @@ driver = webdriver.Chrome(options=chrome_options)
 # GET LOGIN DATA -------------------------------------------------------------------------
 def getredditlogin():
 	redduname = input("Reddit username:	")
-	reddpass = input("Reddit password:	")
+	reddpass = getpass("Reddit password:	")
 	return redduname, reddpass
 
 def getlemmyserver():
@@ -80,7 +84,7 @@ def getlemmyserver():
 	
 def getlemmylogin():
 	lemmuname = input("Lemmy username:		")
-	lemmpass = input("Lemmy password:		")
+	lemmpass = getpass("Lemmy password:		")
 	return lemmuname,lemmpass
 
 def checkreddlogin(redduname,reddpass):
@@ -139,8 +143,11 @@ def checklemmylogin(lemmserver,lemmuname,lemmpass):
 	try:
 		driver.get("http://"+lemmserver+"/login")
 		driver.find_element("id", "login-email-or-username").send_keys(lemmuname)
-		driver.find_element("id", "login-password").send_keys(lemmpass)
-		driver.find_element("id", "login-password").send_keys(Keys.ENTER)
+		#	//*[@id="app"]/div[2]/div/div/div/div/div/form/div[2]/div/div/div/input
+		#driver.find_element("aria-describedby", "login-password").send_keys(lemmpass)
+		#driver.find_element("aria-describedby", "login-password").send_keys(Keys.ENTER)
+		driver.find_element(By.XPATH, '//*[@id="app"]/div[2]/div/div/div/div/div/form/div[2]/div/div/div/input').send_keys(lemmpass)
+		driver.find_element(By.XPATH, '//*[@id="app"]/div[2]/div/div/div/div/div/form/div[2]/div/div/div/input').send_keys(Keys.ENTER)
 		time.sleep(5)
 		currentURL = driver.current_url
 		if "login" in currentURL:
@@ -174,15 +181,18 @@ def getsubs():
 		if DEBUG == 1 : print(e)
 		exit()
 
-def lemmysubsearch(sub):
+def lemmysubsearch(lemmserver,sub):
 	try:
-		lemmysearchURL = "https://lemmy.world/search?q="+sub+"&type=Communities&sort=TopAll"
+		lemmysearchURL = "http://"+lemmserver+"/search?q="+sub+"&type=Communities&sort=TopAll"
 		driver.get(lemmysearchURL)
 		topresult = driver.find_element(By.XPATH,'//*[@id="app"]/div[2]/div/div/div[3]/div/span[1]/a/span').text
-		try:
-			topresult = str(topresult)
-		except:
-			topresult=topresult
+		try: topresult = str(topresult)
+		except: topresult = topresult
+		try: topresult = topresult.replace(" ","")
+		except: topresult = topresult
+		if "@" not in topresult:
+			try: topresult = topresult+"@"+lemmserver
+			except: topresult = topresult
 		file_object = open("lemmy.txt", "a")
 		file_object.write("\n"+topresult)
 		file_object.close()
@@ -271,7 +281,7 @@ for sub in subs:
 	sub = str(sub)
 	if DEBUG == 1 : print("		"+sub,end="")
 	try:
-		lemmyresult = lemmysubsearch(sub)
+		lemmyresult = lemmysubsearch(lemmserver,sub)
 		if DEBUG == 1:
 			if lemmyresult == 0: print(" not found on Lemmy.")
 			elif lemmyresult == 1 and DEBUG != 1 : print(" produced an Error while searching.")
