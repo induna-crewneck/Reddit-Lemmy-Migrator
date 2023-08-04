@@ -41,7 +41,7 @@ In short and besides the points mentioned above, Reddit is limiting users and mo
 ### Is it safe to put my username and password into this?
 Your credentials won't be stored in any file by this script. They will not be transmitted to me or any 3rd party services/websites. They are used solely to log-in to reddit and lemmy respectively to get a list of your subscribed subreddits from reddit and to subscribe to the communities on lemmy/kbin.
 #### Privacy
-When entering your login data it will be displayed in cleartext, so don't do this in public if you're worried about people glancing at your passwords.
+Your password won't be displayed when entering. 
 
 ## Known Issues
 ### Incomplete lemmy magazine
