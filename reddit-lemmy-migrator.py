@@ -1,12 +1,13 @@
 """
-Reddit to Lemmy migration assistant		v.1.4beta (20230803)
+Reddit to Lemmy migration assistant		v.1.5 (20230804)
 	New changes:
-	-Search goes through home instance
-	-Fixed Lemmy login bug
-	-getpass implemented for password entering for more privacy
-	-removing spaces from topresult (was bug)
-		-added search instance to topresult (not too necessary, more for cohesiveness and debugging)
-	-added chromedriver autoinstaller. see https://pypi.org/project/chromedriver-autoinstaller/
+	-sub.rehab implementation
+		additionally to old method, also searches sub.rehab for subreddit substitute
+	-sizeable UX overhaul
+		-progress display for community search (disabled in DEBUG mode)
+		-simplified output in normal and DEBUG mode
+		-added spacing dots to make list outputs more cohesive
+		-added custom messaging for common errors
 
 https://github.com/induna-crewneck/Reddit-Lemmy-Migrator/
 
@@ -41,7 +42,6 @@ lemmyserverstatus = "not set"
 lemmycredstatus = "not set"
 ARGLOGIN = 0
 
-# Setting DEBUG if "-debug was added to command-line"
 try:
 	sysarg = sys.argv[1].replace("-","")
 	if "debug" in sysarg:
@@ -65,13 +65,18 @@ except Exception as e:
 	if DEBUG == 1: print("no arguments added to execution command "+e)
 
 # PRE-SETUP ------------------------------------------------------------------------------
-chromedriver_autoinstaller.install()
-chrome_options = Options()
-chrome_options.add_argument("--disable-extensions")
-chrome_options.add_argument("--disable-gpu")
-if DEBUG != 1: chrome_options.add_argument("--headless")
-driver = webdriver.Chrome(options=chrome_options)
-
+try:
+	chromedriver_autoinstaller.install()
+	chrome_options = Options()
+	chrome_options.add_argument("--disable-extensions")
+	chrome_options.add_argument("--disable-gpu")
+	if DEBUG != 1: chrome_options.add_argument("--headless")
+	driver = webdriver.Chrome(options=chrome_options)
+except Exception as e:
+	print("Error while setting up chromedriver")
+	if DEBUG == 1: print(e)
+	exit()
+	
 # GET LOGIN DATA -------------------------------------------------------------------------
 def getredditlogin():
 	redduname = input("Reddit username:	")
@@ -88,7 +93,7 @@ def getlemmylogin():
 	return lemmuname,lemmpass
 
 def checkreddlogin(redduname,reddpass):
-	if DEBUG == 1 : print("	Checking Reddit login data")
+	if DEBUG == 1 : print("	Reddit login data is being checked")
 	try:
 		driver.get(reddURL)
 		driver.find_element(By.XPATH, '//*[@id="login_login-main"]/input[2]').send_keys(redduname)
@@ -98,18 +103,17 @@ def checkreddlogin(redduname,reddpass):
 		time.sleep(3)
 		try:
 			loginstatus = driver.find_element(By.XPATH,'//*[@id="login_login-main"]/div[2]').text
-			if DEBUG == 1 and loginstatus != "incorrect username or password": print("		"+loginstatus)
-			print("	Incorrect username or password")
+			if DEBUG == 1 and loginstatus != "incorrect username or password": print("	Reddit login status"+loginstatus)
+			print("	Reddit login data incorrect")
 			return "false_login"
 		except NoSuchElementException:
-			if DEBUG == 1 : print("		Login error not found (this is good)")
 			print("	Reddit login success")
 			return "OK"
 		except Exception as e2:
-			if DEBUG == 1 : print("		Error while checking Reddit credentials:\n"+e2)
+			if DEBUG == 1 : print("	Reddit login verification error:\n		"+str(e2)[0:320])
 	except Exception as e:
-		if DEBUG == 1 : print("		Error while checking Reddit credentials:\n"+e)
-		print(" Reddit login could not be verified due to an error.")
+		if DEBUG == 1 : print("	Reddit login verification error:\n		"+str(e)[0:320])
+		else: print(" Reddit login could not be verified due to an error.")
 		return "false_login"
 
 def checklemmyserver(lemmserver):
@@ -143,9 +147,6 @@ def checklemmylogin(lemmserver,lemmuname,lemmpass):
 	try:
 		driver.get("http://"+lemmserver+"/login")
 		driver.find_element("id", "login-email-or-username").send_keys(lemmuname)
-		#	//*[@id="app"]/div[2]/div/div/div/div/div/form/div[2]/div/div/div/input
-		#driver.find_element("aria-describedby", "login-password").send_keys(lemmpass)
-		#driver.find_element("aria-describedby", "login-password").send_keys(Keys.ENTER)
 		driver.find_element(By.XPATH, '//*[@id="app"]/div[2]/div/div/div/div/div/form/div[2]/div/div/div/input').send_keys(lemmpass)
 		driver.find_element(By.XPATH, '//*[@id="app"]/div[2]/div/div/div/div/div/form/div[2]/div/div/div/input').send_keys(Keys.ENTER)
 		time.sleep(5)
@@ -170,7 +171,7 @@ def getsubs():
 		multi = driver.find_element(By.LINK_TEXT, "multireddit of your subscriptions").get_attribute('href')
 	except Exception as e:
 		print("	Error obtaining subreddit list\nMake sure your reddit account is set to english.")
-		if DEBUG == 1 : print(e)
+		if DEBUG == 1 : print(str(e)[0:320])
 		exit()
 	try:
 		subs = multi.replace("https://old.reddit.com/r/","").split("+")
@@ -178,30 +179,48 @@ def getsubs():
 		return subs
 	except Exception as e:
 		print("	Error processing subreddit list")
-		if DEBUG == 1 : print(e)
+		if DEBUG == 1 : print("	",str(e)[0:320])
 		exit()
+
+def subrehabsearch(sub):
+	try:
+		rehabURL = "https://sub.rehab/r/"+sub
+		s = requests.session()
+		response = s.get(rehabURL)
+		results = re.findall('mantine-11qn4mn" href="([^\"]+)', str(response.text))
+		if results:
+			topresulturl = str(''.join(results[:1]))
+			topresultinstance = str(''.join(re.findall('\/\/([^\/]+)',topresulturl)[:1]))
+			topresultcommunity = str(''.join(re.findall('\/c\/([^\/]+)',topresulturl)[:1]))
+			topresult = topresultcommunity.lower()+"@"+topresultinstance
+			if "discord.gg" in topresult or "raddle" in topresult or "squabbles" in topresult or "ramble" in topresult: return 0,""	# discarding results on other platforms
+			return 1,topresult
+		else: return 0,""
+	except Exception as e:
+		if DEBUG == 1: print(str(e)[0:320])
+		return 0,""
 
 def lemmysubsearch(lemmserver,sub):
 	try:
 		lemmysearchURL = "http://"+lemmserver+"/search?q="+sub+"&type=Communities&sort=TopAll"
 		driver.get(lemmysearchURL)
-		topresult = driver.find_element(By.XPATH,'//*[@id="app"]/div[2]/div/div/div[3]/div/span[1]/a/span').text
+		topresult = driver.find_element(By.XPATH,'//*[@id="app"]/div[2]/div/div/div[3]/div/span[1]/a').get_attribute('title').replace("!","")
 		try: topresult = str(topresult)
 		except: topresult = topresult
 		try: topresult = topresult.replace(" ","")
 		except: topresult = topresult
+		topresult = topresult.lower()
 		if "@" not in topresult:
 			try: topresult = topresult+"@"+lemmserver
 			except: topresult = topresult
-		file_object = open("lemmy.txt", "a")
-		file_object.write("\n"+topresult)
-		file_object.close()
-		return topresult
+		return 1,topresult
 	except NoSuchElementException:
-		return 0
+		return 0,""
 	except Exception as e:
-		if DEBUG == 1 : print(" produced an error: ",e)
-		return 1
+		if DEBUG == 1 :
+			try: print(" and produced an error: "+str(''.join(re.findall("(.*)",e)[:1])))
+			except: print(" and produced an error: ",e)
+		return 0,""
 
 def lemmycleanup():
 	try:
@@ -225,24 +244,63 @@ def lemmyjoin():
 				line = str(line).strip()
 				if len(line) >= 1:
 					print("	"+line,end="")
+					dots = "."*(45-len(line))
 					try:
 						driver.get("https://"+lemmserver+"/c/"+line)
 						time.sleep(1)
-						LemmyBTN = driver.find_element(By.CSS_SELECTOR, "button.btn.btn-secondary.d-block.mb-2.w-100")
-						if LemmyBTN.text == "Subscribe":
-							LemmyBTN.click()
-							print(" subscribed")
-						elif LemmyBTN.text == "Joined":
-							print(" already subsribed")
-						else:
-							print(" not subscribed (ERROR 1)")
+						try:
+							LemmyBTN = driver.find_element(By.CSS_SELECTOR, "button.btn.btn-secondary.d-block.mb-2.w-100").text
+							resolved = 0
+						except:
+							# Button not found. Either 'Subscribe pending' or other issue.
+							# Checking for subscribe pending
+							try:
+								print(dots+"not subscribed (1) "+driver.find_element(By.XPATH,'//*[@id="sidebarMain"]/div/button').text+".")
+								resolved = 1
+							except Exception as e3:
+								resolved = 0
+							# Checking for Error with message 
+							if resolved == 0:
+								try:
+									message = driver.find_element(By.XPATH,'//*[@id="app"]/div[2]/div/p').text
+									if "Try refreshing" in message:
+										print("."*(37-len(line))+"retrying.....",end="")
+										dots = ""
+										driver.get("https://"+lemmserver+"/c/"+line)
+										time.sleep(30)
+										LemmyBTN = driver.find_element(By.CSS_SELECTOR, "button.btn.btn-secondary.d-block.mb-2.w-100").text
+									else: LemmyBTN = message							
+								except Exception as e4:
+									LemmyBTN = str(e4)[0:100]
+									if "Unable to locate element" in LemmyBTN: LemmyBTN = "Subscribe button not found (1)."
+						if resolved == 0 and LemmyBTN == "Subscribe":
+							driver.find_element(By.CSS_SELECTOR, "button.btn.btn-secondary.d-block.mb-2.w-100").click()
+							print(dots+"subscribed.")
+						elif resolved == 0 and LemmyBTN == "Joined":
+							print(dots+"already subsribed.")
+						elif resolved == 0:	
+							if len(LemmyBTN)>50: print(dots+"not subscribed (2) "+LemmyBTN[0:50]+"...")
+							else: print(dots+"not subscribed (3) "+LemmyBTN)
+						resolved = 1
 					except Exception as e2:
-						print(" not subscribed (ERROR 2)")
-						if DEBUG == 1 : print(e2)
-		os.remove("lemmy.txt")
+						if "Unable to locate element" in str(e2):
+							try:
+								print(dots+"not subscribed (4) "+driver.find_element(By.XPATH,'//*[@id="sidebarMain"]/div/button').text+".")
+							except Exception as e3:
+								print(dots+"not subscribed. Subscribe button not found (2).")
+								if DEBUG == 1: print("		",str(e3)[0:100])
+						elif DEBUG == 1:
+							try: print(dots+"not subscribed (5) ",str(e2)[0:100])
+							except: print(dots+"not subscribed (6) ",e2)
+						else: print(dots+"not subscribed (7)")
+		os.remove("lemmy.txt") 
 	except Exception as e:
 		print("	Error while joining Lemmy communities.")
-		if DEBUG == 1 : print(e)
+		if DEBUG == 1 :
+			try: print(''.join(re.findall("(.*)",e)[:1]))
+			except:
+				try: print(str(e)[0:320])
+				except: print(e)
 		exit()
 
 # EXECUTION ------------------------------------------------------------------------------
@@ -251,15 +309,14 @@ print("It will create a list of your subscribed subreddits, look for communities
 print("and subscribe to the community with the most subscribers (searching through lemmy.world)\n")
 
 if ARGLOGIN == 1:
-	if DEBUG == 1: print("Login data received from command line arguments\n	Checking login data")
+	if DEBUG == 1: print("Login data received from command line arguments")
 	reddcredstatus = checkreddlogin(redduname,reddpass)
 	if DEBUG == 1 and reddcredstatus != "OK": print("		Reddit credentials in command line arguments seem to be incorrect")
 	lemmyserverstatus = checklemmyserver(lemmserver)
 	if DEBUG == 1 and lemmyserverstatus != "OK": print("		Lemmy instance in command line arguments seems to be incorrect")
 	lemmycredstatus = checklemmylogin(lemmserver,lemmuname,lemmpass)
 	if DEBUG == 1 and lemmycredstatus != "OK": print("		Lemmy credentials in command line arguments seem to be incorrect")
-
-if ARGLOGIN == 0: print("Please enter your Reddit account info")
+else: print("Please enter your Reddit account info")
 
 while reddcredstatus != "OK":
 	redduname,reddpass = getredditlogin()
@@ -276,24 +333,60 @@ while lemmycredstatus != "OK":
 print("Getting a list of your subsribed subreddits")
 subs = getsubs()
 
-print("	Looking for corresponding communities on Lemmy. Depending on the number of subreddits, this can take a while.")
+if DEBUG != 1:							# for progress display
+	searchpercscale = len(subs)/100		
+	searchpercent = 0
+	counter = 0
+print("Looking for corresponding communities on Lemmy.")
 for sub in subs:
+	if DEBUG != 1:						# for progress display
+		counter = counter+1
+		searchpercent = round(counter/searchpercscale,2)
+		print ("	",counter,"/",len(subs)," subreddits searched (",searchpercent,"% completed )",end="\r")
 	sub = str(sub)
-	if DEBUG == 1 : print("		"+sub,end="")
+	if DEBUG == 1 : print("	r/"+sub,end="")
+	dots = "."*(43-len(sub))
+#	Sub.Rehab search
 	try:
-		lemmyresult = lemmysubsearch(lemmserver,sub)
-		if DEBUG == 1:
-			if lemmyresult == 0: print(" not found on Lemmy.")
-			elif lemmyresult == 1 and DEBUG != 1 : print(" produced an Error while searching.")
-			elif len(lemmyresult)>1: print("@"+lemmyresult.replace(sub,"").replace("@",""))
+		rehabresult,rehabresultname = subrehabsearch(sub)
 	except Exception as e:
-		if DEBUG == 1 : print("\n")
-		print("Error looking for "+sub+": "+e)
+		rehabresult = 0
+		if DEBUG == 1: print(e)
+#	Lemmy search (old method)
+	try:
+		lemmyresult,lemmyresultname = lemmysubsearch(lemmserver,sub)
+		if lemmyresultname == str and lemmyresultname.startswith("@") == True: lemmyresultname = sub+lemmyresultname
+	except:
+		lemmyresultname = ""
+		lemmyresult = 0
 
-if DEBUG == 1 : print("	Cleaning up result list")
+	file_object = open("lemmy.txt", "a")
+	#print("\nrehab:	",rehabresultname,"\nlemmy:	",lemmyresultname,"\n")
+	if lemmyresultname == rehabresultname: file_object.write(lemmyresultname+"\n")
+	else: file_object.write(rehabresultname+"\n"+lemmyresultname+"\n")
+	file_object.close()
+
+	try:
+		if DEBUG == 1:
+			if lemmyresult+rehabresult == 0: print(dots+"not found.")
+			else: print(dots+"found: ",end="")
+			if lemmyresult+rehabresult == 1:
+				if rehabresult == 1: print(rehabresultname)
+				if lemmyresult == 1: print(lemmyresultname)
+			if lemmyresult+rehabresult == 2:
+				if lemmyresultname == rehabresultname: print(rehabresultname,"(x2)")
+				else: print(rehabresultname,"&",lemmyresultname+".")
+			elif DEBUG != 1 : print(dots+"ERROR while searching on Lemmy.")
+	except Exception as e:
+		if DEBUG == 1:
+			try: print(dots+"EXCEPTION: "+str(''.join(re.findall("(.*)",e)[:1])))
+			except: print(dots+"EXCEPTION: ",e)
+		else: print(dots+"EXCEPTION.")
+
+if DEBUG == 1 : print("Cleaning up result list")
 lemmycleanup()
 
-print("\nJoining Lemmy communities")
+print("Joining Lemmy communities")
 lemmyjoin()
 
 driver.quit()
