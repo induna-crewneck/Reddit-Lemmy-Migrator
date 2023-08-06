@@ -4,8 +4,9 @@ Python script to transfer subreddit subscriptions to Lemmy or Kbin
 ## What it does
 This script is meant to make the switch from Reddit to Lemmy (or kbin) easier. These are the steps taken by the script:
 1. Get a list of subscribed subreddits from your profile
-2. Look for communities with the same name as your subreddits on lemmy (or kbin)
-3. Joins the communities with your Lemmy account.
+2. Look for substitute for subreddit on sub.rehab (version 1.5+)
+3. Look for communities with the same name as your subreddits on lemmy (or kbin)
+4. Joins the communities with your Lemmy account.
 
 ## Prerequisites
 - [Python 3](https://realpython.com/installing-python/)
@@ -50,5 +51,3 @@ Some communities are found on lemmy.world and are accessible through Lemmy insta
 Example 1: Amoledbackgrounds is found when searching though lemmy.world. It can be accessed by any Lemmy instance under AmoledBackgrounds@lemmy.world but when accessing though Kbin it says `The magazine from the federated server may be incomplete`. You can browse it but not join.
 
 Example 2: 3amjokes is also found and accessible through Lemmy, but when trying to access it through Kbin it throws a straight-up `404 Not found`.
-
-There is nothing I can do about that since it is a kbin-"issue".
