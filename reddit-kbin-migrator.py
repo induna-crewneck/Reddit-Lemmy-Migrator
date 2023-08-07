@@ -1,12 +1,15 @@
 """
-Reddit to kbin migration assistant		v.1.4 (20230803)
+Reddit to kbin migration assistant		v.1.6 (20230804)
 	New changes:
-	-Search goes through home instance
-	-Fixed Lemmy login bug
-	-getpass implemented for password entering for more privacy
-	-removing spaces from topresult (was bug)
-		-added search instance to topresult (not too necessary, more for cohesiveness and debugging)
-	-added chromedriver autoinstaller. see https://pypi.org/project/chromedriver-autoinstaller/
+	-sub.rehab implementation
+		additionally to old method, also searches sub.rehab for subreddit substitute
+	-sizeable UX overhaul
+		-progress display for community search (disabled in DEBUG mode)
+			-variation for DEBUG mode
+		-stats at end
+		-simplified output in normal and DEBUG mode
+		-added spacing dots to make list outputs more cohesive
+		-added custom messaging for common errors
 
 https://github.com/induna-crewneck/Reddit-Lemmy-Migrator/
 
@@ -42,6 +45,10 @@ kbinserverstatus = "not set"
 kbincredstatus = "not set"
 ARGLOGIN = 0
 
+searchpercent = 0
+counter = 0
+substitutes_found = 0
+
 # Setting DEBUG if "-debug was added to command-line"
 try:
 	sysarg = sys.argv[1].replace("-","")
@@ -66,12 +73,17 @@ except Exception as e:
 	if DEBUG == 1: print("no arguments added to execution command "+e)
 
 # PRE-SETUP ------------------------------------------------------------------------------
-chromedriver_autoinstaller.install()
-chrome_options = Options()
-chrome_options.add_argument("--disable-extensions")
-chrome_options.add_argument("--disable-gpu")
-if DEBUG != 1: chrome_options.add_argument("--headless")
-driver = webdriver.Chrome(options=chrome_options)
+try:
+	chromedriver_autoinstaller.install()
+	chrome_options = Options()
+	chrome_options.add_argument("--disable-extensions")
+	chrome_options.add_argument("--disable-gpu")
+	if DEBUG != 1: chrome_options.add_argument("--headless")
+	driver = webdriver.Chrome(options=chrome_options)
+except Expception as e:
+	print("Error while setting up chromedriver")
+	if DEBUG == 1: print(e)
+	exit()
 
 # GET LOGIN DATA -------------------------------------------------------------------------
 def getredditlogin():
@@ -89,7 +101,6 @@ def getkbinlogin():
 	return kbinuname,kbinpass
 
 def checkreddlogin(redduname,reddpass):
-	if DEBUG == 1 : print("	Checking Reddit login data")
 	try:
 		driver.get(reddURL)
 		driver.find_element(By.XPATH, '//*[@id="login_login-main"]/input[2]').send_keys(redduname)
@@ -181,107 +192,148 @@ def getsubs():
 		if DEBUG == 1 : print(e)
 		exit()
 
-def socialcheck(sub):
-	s = requests.session()
-	response = s.get("https://kbin.social/m/"+sub)
-	responsecode = int(str(re.findall(r"\d{3}", str(response)))[2:5])
-	if responsecode == 200:
-		#if DEBUG == 1 : print("found on kbin.social")
-		socialresult = sub
-	else:
-		#print("not found on kbin.social")
-		return 0
-	file_object = open('kbin.txt', 'a')
-	file_object.write("\n"+str(socialresult))
-	file_object.close()
-	return 1
+def subrehabsearch(sub):
+	try:
+		rehabURL = "https://sub.rehab/r/"+sub
+		s = requests.session()
+		response = s.get(rehabURL)
+		results = re.findall('mantine-11qn4mn" href="([^\"]+)', str(response.text))
+		if results:
+			topresulturl = str(''.join(results[:1]))
+			topresultinstance = str(''.join(re.findall('\/\/([^\/]+)',topresulturl)[:1]))
+			topresultcommunity = str(''.join(re.findall('\/c\/([^\/]+)',topresulturl)[:1]))
+			topresult = topresultcommunity.lower()+"@"+topresultinstance
+			if "discord.gg" in topresult or "raddle" in topresult or "squabbles" in topresult or "ramble" in topresult: return 0,""	# discarding results on other platforms
+			return 1,topresult
+		else: return 0,""
+	except Exception as e:
+		if DEBUG == 1: print(str(e)[0:320])
+		return 0,""
 
 def kbinsubsearch(sub):
 	try:
-		kbinsearchURL = "https://kbin.social/magazines?q="+sub
+		kbinsearchURL = "https://kbin.social/magazines?query="+sub+"&fields=names&federation=all&adult=show"
 		driver.get(kbinsearchURL)
-		results = driver.find_element(By.XPATH, '//*[@id="content"]/div/div/table')
-		topkbinresult = driver.find_element(By.XPATH, '//*[@id="content"]/div/div/table/tbody/tr[1]/td[1]/a')
-		if "@" in topkbinresult.text: topkbinresult = topkbinresult.text
-		else: topkbinresult = topkbinresult.text
-		#print("			result with most kbin subscribers: "+topkbinresult)
-		if sub not in topkbinresult: return 0
-		file_object = open('kbin.txt', 'a')
-		file_object.write("\n"+str(topkbinresult))
-		file_object.close()
-		return 1
+		topkbinresult = driver.find_element(By.XPATH, '//*[@id="content"]/div/div/table/tbody/tr[1]/td[1]/a').get_attribute('title')[1:]
+		return 1,topkbinresult
 	except Exception as e:
-		#if DEBUG == 1 : print("kbinsubsearch ERROR: ",e)
-		return 0
+		return 0,""
 
 def lemmysubsearch(sub):
 	try:
-		lemmysearchURL = "https://lemmy.world/search?q="+sub+"&type=Communities&sort=TopAll"
-		driver.get(lemmysearchURL)
-		topresult = driver.find_element(By.XPATH,'//*[@id="app"]/div[2]/div/div/div[3]/div/span[1]/a/span').text
+		s = requests.session()
+		response = s.get("http://lemmy.world/")
+		responsecode = int(str(re.findall(r"\d{3}", str(response)))[2:5])
+	except: responsecode = 0
+	if responsecode != 200:
 		try:
-			topresult = str(topresult)
-		except:
-			topresult=topresult
-		if "@" not in topresult:
-			topresult = topresult+"@lemmy.world"
 			s = requests.session()
-			response = s.get("http://"+str(kbinserver)+"/"+topresult)
+			response = s.get("http://lemmy.ml/")
 			responsecode = int(str(re.findall(r"\d{3}", str(response)))[2:5])
-			if responsecode != 200 and DEBUG == 1: print("not accessible\n			Check 'Incomplete lemmy magazine' under 'Known Issues' on the Github page for more info\n			Otherwise ",end="")
-			return 0
-		file_object = open("kbin.txt", "a")
-		file_object.write("\n"+topresult)
-		file_object.close()
-		return 1
+			if responsecode == 200: lemmserver = "lemmy.ml"
+		except: responsecode = 0
+	else: lemmserver = "lemmy.world"
+	try:
+		lemmysearchURL = "http://"+lemmserver+"/search?q="+sub+"&type=Communities&sort=TopAll"
+		driver.get(lemmysearchURL)
+		topresult = driver.find_element(By.XPATH,'//*[@id="app"]/div[2]/div/div/div[3]/div/span[1]/a').get_attribute('title').replace("!","")
+		try: topresult = str(topresult)
+		except: topresult = topresult
+		try: topresult = topresult.replace(" ","")
+		except: topresult = topresult
+		topresult = topresult.lower()
+		if "@" not in topresult:
+			try: topresult = topresult+"@"+lemmserver
+			except: topresult = topresult
+		response2 = s.get("http://"+lemmserver+"/"+topresult)
+		responsecode2 = int(str(re.findall(r"\d{3}", str(response2)))[2:5])
+		if responsecode2 != 200: return 0,""
+		return 1,topresult
 	except NoSuchElementException:
-		return 0
+		return 0,""
 	except Exception as e:
-		if DEBUG == 1 : print(" produced an error: ",e)
-		return 0
+		if DEBUG == 1 :
+			try: print(" produced an error: "+str(e)[0:60])
+			except: print(" produced an error: ",e)
+		return 0,""
 
 def cleankbin():
+	substitutes = 0
 	try:
 		lines_seen = set()
 		outfile = open("kbin2.txt", "w")
 		for line in open("kbin.txt", "r"):
 			if line not in lines_seen and " " not in line:
 				outfile.write(line)
+				substitutes = substitutes+1
 				lines_seen.add(line)
 		outfile.close()
 		os.remove("kbin.txt")
 		os.rename("kbin2.txt","kbin.txt")
+		return substitutes
 	except Exception as e:
 		if DEBUG == 1 : print(e)
 
-def kbinjoin():
+def kbinjoin(substitutes):
 	try:
+		counter = 0
+		subscribed = 0
+		already = 0
+		notsubbed = 0
+		pending = 0
 		with open("kbin.txt","r") as f:
 			data = f.readlines()
 			for line in data:
 				line = str(line).strip()
+				dots = "."*(35-len(line))
+				if dots == "": dots = " "
+				go = 1
+				counter = counter+1
 				if line == "None": line = ""
-				if len(line) >= 1:
-					if "@" in line: print("	"+line,end="")
-					else: print("	"+line+"@kbin.social",end="")
-					try:
-						driver.get("https://"+kbinserver+"/m/"+line)
-						time.sleep(1)
-						kbinBTN = driver.find_element(By.XPATH, '//*[@id="sidebar"]/section[1]/aside/form[1]/button')
-						if kbinBTN.text == "Subscribe":
-							kbinBTN.click()
-							print(" subscribed")
-						elif kbinBTN.text == "Unsubscribe":
-							print(" already subsribed")
+				print("	("+f"{counter:03d}"+"/"+f"{substitutes:03d}"+") "+line,end="")
+				line = line.replace("@"+kbinserver,"")
+				try:
+					driver.get("https://"+kbinserver+"/m/"+line)
+					time.sleep(1)
+					try: # checking for 404
+						message = driver.find_element(By.XPATH, '//*[@id="content"]/p').text
+						if "404" in message:
+							print(dots+"not found (404).")
+							go = 0
 						else:
-							print(" not subscribed (ERROR 1)")
+							go = 1
+					except Exception as e:
+						go = 1
+					try:
+						if go == 1:
+							kbinBTN = driver.find_element(By.XPATH, '//*[@id="sidebar"]/section[1]/aside/form[1]/button')
+							if kbinBTN.text == "Subscribe":
+								kbinBTN.click()
+								print(dots+"subscribed.")
+								subscribed = subscribed+1
+							elif kbinBTN.text == "Unsubscribe":
+								print(dots+"already subsribed.")
+								already = already+1
+							elif "pending" in kbinBTN.text.lower():
+								print(dots+"subscription pending.")
+								pending = pending+1
+							else:
+								print(dots+"not subscribed (ERROR 1)")
+								notsubbed = notsubbed+1
+							go = 0
 					except Exception as e2:
-						print(" not subscribed (ERROR 2)")
-						if DEBUG == 1 : print(e2)
+						if DEBUG == 1: print(dots+"not subscribed. "+str(e2)[0:50])
+						else: print(dots+"not subscribed (ERROR 2)")
+						notsubbed = notsubbed+1
+				except Exception as e:
+					print(dots+"not subscribed. Button not found")
+					if DEBUG == 1: print(dots+str(e)[0:50])
+					notsubbed = notsubbed+1
 		os.remove("kbin.txt")
+		return subscribed,already,notsubbed,pending
 	except Exception as e:
-		print("	Error while joining kbin communities.")
-		if DEBUG == 1 : print(e)
+		if DEBUG == 1 : print(dots+"ERROR 3"+str(e)[0:100])
+		else: print(dots+"ERROR 3")
 		exit()
 
 # EXECUTION ------------------------------------------------------------------------------
@@ -317,25 +369,62 @@ while kbincredstatus != "OK":
 print("Getting a list of your subsribed subreddits")
 subs = getsubs()
 
-print("	Looking for corresponding communities on kbin. Depending on the number of subreddits, this can take a while.")
+if DEBUG != 1:							# for progress display
+	searchpercscale = len(subs)/100		
+print("Looking for corresponding kbin magazines and lemmy communities.")
 for sub in subs:
+	counter = counter+1				# for progress display
+	if DEBUG != 1:
+		searchpercent = round(counter/searchpercscale,2)
+		print ("	"+f"{counter:03d}"+"/"+f"{len(subs):03d}"+" subreddits searched ("+str(searchpercent)+"% completed)",end="\r")
 	sub = str(sub)
-	if DEBUG == 1 : print("		"+sub+" ",end="")
-	try:
-		socialresult = socialcheck(sub)
-		topkbinresult = kbinsubsearch(sub)
-		lemmyresult = lemmysubsearch(sub)
-		if DEBUG == 1:
-			if socialresult + topkbinresult + lemmyresult == 0: print("not found")
-			else: print("found")
-	except Exception as e3:
-		if DEBUG == 1 : print("ERROR while searching: ",e3)
+	dots = "."*(34-len(sub))
+	if dots == "": dots = " "
+	if DEBUG == 1 : print("	("+f"{counter:03d}"+"/"+f"{len(subs):03d}"+") "+sub,end="")
+	
+	try: rehabresult,rehabresultname = subrehabsearch(sub)
+	except: rehabresult,rehabresultname = 0,""
+	try: kbinresult,kbinresultname = kbinsubsearch(sub)
+	except: kbinresult,kbinresultname = 0,""
+	try: lemmyresult,lemmyresultname = lemmysubsearch(sub)
+	except: lemmyresult,lemmyresultname = 0,""
+	
+	#print("\nrehab:		",rehabresult,rehabresultname,"\nkbin.social:	",kbinresult,kbinresultname,"\nlemmy search:	",lemmyresult,lemmyresultname)
+	
+	resultlist = []
+	if rehabresult == 1: resultlist.append(rehabresultname.lower())
+	if kbinresult == 1: resultlist.append(kbinresultname.lower())
+	if lemmyresult == 1: resultlist.append(lemmyresultname.lower())
+	resultlist = list(set(resultlist)) # should delete duplicates
+	
+	file_object = open('kbin.txt', 'a')
+	
+	if len(resultlist)>0: file_object.write(resultlist[0]+"\n")
+	if len(resultlist)>1: file_object.write(resultlist[1]+"\n")
+	if len(resultlist)>2: file_object.write(resultlist[2]+"\n")
+	if len(resultlist)>3: file_object.write(resultlist[3]+"\n")
+	file_object.close()
 
-print("Cleaning up duplicates")
-cleankbin()
+	if DEBUG == 1: 
+		if rehabresult+kbinresult+lemmyresult == 0: print(dots+"not found.")
+		else:
+			print(dots+"found "+str(' & '.join(resultlist))+".")
+			substitutes_found = substitutes_found+1
 
-print("\nJoining kbin communities")
-kbinjoin()
+if DEBUG == 1: print("Cleaning up duplicates")
+else: print("\nCleaning up duplicates")
+substitutes = cleankbin()
+print("	Found "+str(substitutes)+" substitutes for "+str(len(subs))+" subreddits.")
+
+print("Joining kbin communities")
+subscribed,already,notsubbed,pending = kbinjoin(substitutes)
 
 driver.quit()
-print("\nProcess finished.")
+print("\nProcess finished.\n	")
+print("Subreddits pulled from Reddit:		",len(subs))
+print("Substitutes found on Kbin & Lemmy:	",substitutes)
+print("Subscribed on Kbin & Lemmy:		",subscribed)
+print("Already subscribed:			",already)
+print("Subscription pending:			",pending)
+print("Not subscribed (Errors):		",notsubbed)
+exit()
